@@ -1,7 +1,6 @@
-create extension if not exists "uuid-ossp";
-
+-- Use gen_random_uuid() (Postgres 13+) so no extension required.
 create table if not exists public.users (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   name text not null,
   email text unique not null,
   contact_number text,
@@ -11,7 +10,7 @@ create table if not exists public.users (
 );
 
 create table if not exists public.courts (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   name text not null,
   sport_type text not null,
   description text,
@@ -19,7 +18,7 @@ create table if not exists public.courts (
 );
 
 create table if not exists public.reservations (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.users(id) on delete cascade,
   court_id uuid not null references public.courts(id) on delete cascade,
   event_type text not null,
@@ -36,7 +35,7 @@ create index if not exists idx_reservations_court_date
   on public.reservations (court_id, date, start_time, end_time);
 
 create table if not exists public.notifications (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.users(id) on delete cascade,
   title text not null,
   message text not null,
@@ -45,7 +44,7 @@ create table if not exists public.notifications (
 );
 
 create table if not exists public.analytics_daily (
-  id uuid primary key default uuid_generate_v4(),
+  id uuid primary key default gen_random_uuid(),
   date date not null unique,
   total_bookings integer not null default 0,
   busiest_hour integer,
@@ -141,6 +140,8 @@ $$;
 create or replace function public.refresh_daily_analytics(p_date date)
 returns void
 language plpgsql
+security definer
+set search_path = public
 as $$
 declare
   v_total integer;
@@ -172,7 +173,7 @@ begin
   into v_most_sport;
 
   insert into public.analytics_daily (id, date, total_bookings, busiest_hour, most_booked_sport)
-  values (uuid_generate_v4(), p_date, coalesce(v_total,0), v_busiest_hour, v_most_sport)
+  values (gen_random_uuid(), p_date, coalesce(v_total,0), v_busiest_hour, v_most_sport)
   on conflict (date) do update
     set total_bookings = excluded.total_bookings,
         busiest_hour = excluded.busiest_hour,
@@ -223,6 +224,10 @@ using (
 create policy "users_update_self"
 on public.users for update
 using (id = public.current_user_id());
+
+create policy "users_insert_own"
+on public.users for insert
+with check (id = public.current_user_id());
 
 create policy "courts_select_all"
 on public.courts for select

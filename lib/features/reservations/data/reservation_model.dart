@@ -1,6 +1,7 @@
 class Reservation {
   final String id;
   final String courtId;
+  final String? categoryId;
   final String userId;
   final String eventType;
   final int playersCount;
@@ -13,6 +14,7 @@ class Reservation {
   Reservation({
     required this.id,
     required this.courtId,
+    this.categoryId,
     required this.userId,
     required this.eventType,
     required this.playersCount,
@@ -26,6 +28,7 @@ class Reservation {
   factory Reservation.fromMap(Map<String, dynamic> map) => Reservation(
         id: map['id'] as String,
         courtId: map['court_id'] as String,
+        categoryId: map['category_id'] as String?,
         userId: map['user_id'] as String,
         eventType: map['event_type'] as String,
         playersCount: map['players_count'] as int,

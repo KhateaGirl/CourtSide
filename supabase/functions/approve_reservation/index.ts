@@ -1,13 +1,21 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
 type Payload = {
   reservation_id: string;
   status: "APPROVED" | "REJECTED";
 };
 
 Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders });
+  }
   if (req.method !== "POST") {
-    return new Response("Method not allowed", { status: 405 });
+    return new Response("Method not allowed", { status: 405, headers: corsHeaders });
   }
 
   const supabaseClient = createClientFromReq(req);
@@ -16,6 +24,7 @@ Deno.serve(async (req) => {
   if (!authUser) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
@@ -28,6 +37,7 @@ Deno.serve(async (req) => {
   if (!me || me.role !== "admin") {
     return new Response(JSON.stringify({ error: "Forbidden" }), {
       status: 403,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
@@ -36,6 +46,7 @@ Deno.serve(async (req) => {
   if (!["APPROVED", "REJECTED"].includes(body.status)) {
     return new Response(JSON.stringify({ error: "Invalid status" }), {
       status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
@@ -49,6 +60,7 @@ Deno.serve(async (req) => {
   if (error || !reservation) {
     return new Response(JSON.stringify({ error: "Reservation not found" }), {
       status: 404,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
@@ -68,7 +80,7 @@ Deno.serve(async (req) => {
   });
 
   return new Response(JSON.stringify({ reservation }), {
-    headers: { "Content-Type": "application/json" },
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 });
 

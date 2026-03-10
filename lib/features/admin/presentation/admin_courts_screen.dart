@@ -1,35 +1,127 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/theme/app_design_system.dart';
+import '../../../core/theme/responsive.dart';
+import '../../../core/widgets/confirm_dialog.dart';
+import '../../../core/widgets/empty_state.dart';
+import '../../courts/data/court_model.dart';
+import '../../courts/domain/courts_providers.dart';
 
-class AdminCourtsScreen extends StatefulWidget {
+class AdminCourtsScreen extends ConsumerStatefulWidget {
   const AdminCourtsScreen({super.key});
 
   @override
-  State<AdminCourtsScreen> createState() => _AdminCourtsScreenState();
+  ConsumerState<AdminCourtsScreen> createState() => _AdminCourtsScreenState();
 }
 
-class _AdminCourtsScreenState extends State<AdminCourtsScreen> {
-  late Future<List<Map<String, dynamic>>> _future;
+class _AdminCourtsScreenState extends ConsumerState<AdminCourtsScreen> {
+  RealtimeChannel? _channel;
 
   @override
-  void initState() {
-    super.initState();
-    _future = _load();
+  void dispose() {
+    if (_channel != null) {
+      Supabase.instance.client.removeChannel(_channel!);
+    }
+    super.dispose();
   }
 
-  Future<List<Map<String, dynamic>>> _load() async {
-    final res =
-        await Supabase.instance.client.from('courts').select().order('name');
-    return (res as List).cast<Map<String, dynamic>>();
+  @override
+  Widget build(BuildContext context) {
+    if (_channel == null) {
+      final repo = ref.read(courtsRepositoryProvider);
+      _channel = repo.subscribeToCourtsChanges(() {
+        ref.invalidate(courtsListProvider);
+      });
+    }
+
+    final courtsAsync = ref.watch(courtsListProvider);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Courts'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.add),
+            onPressed: () => _showEditDialog(),
+          ),
+        ],
+      ),
+      body: courtsAsync.when(
+        data: (list) {
+          if (list.isEmpty) {
+            return const EmptyState(
+              icon: Icons.sports_basketball,
+              title: 'No courts yet',
+              subtitle: 'Tap + to add your first court.',
+            );
+          }
+          return ListView.builder(
+          padding: EdgeInsets.symmetric(
+            horizontal: Responsive.isNarrow(context) ? AppSpacing.sm : AppSpacing.md,
+            vertical: AppSpacing.sm,
+          ),
+          itemCount: list.length,
+          itemBuilder: (context, index) {
+            final c = list[index];
+            return Card(
+              margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+              child: ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: AppColors.blue100,
+                  child: Text(
+                    c.sportType.isNotEmpty ? c.sportType[0] : '?',
+                    style: AppTypography.titleMedium.copyWith(
+                      color: AppColors.blue700,
+                    ),
+                  ),
+                ),
+                title: Text(
+                  c.name,
+                  style: AppTypography.titleMedium,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: Text(
+                  c.sportType,
+                  style: AppTypography.bodySmall.copyWith(
+                    color: AppColors.orange700,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                trailing: Wrap(
+                  spacing: AppSpacing.xs,
+                  runSpacing: AppSpacing.xs,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.edit),
+                      color: AppColors.blue600,
+                      onPressed: () => _showEditDialog(court: c),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete),
+                      color: AppColors.rejected,
+                      onPressed: () => _confirmDeleteCourt(c),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+        },
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, st) => Center(child: Text('Error: $e')),
+      ),
+    );
   }
 
-  Future<void> _showEditDialog({Map<String, dynamic>? court}) async {
-    final nameCtrl = TextEditingController(text: court?['name'] ?? '');
-    final sportCtrl = TextEditingController(text: court?['sport_type'] ?? '');
-    final descCtrl =
-        TextEditingController(text: court?['description'] ?? '');
+  Future<void> _showEditDialog({Court? court}) async {
+    final nameCtrl = TextEditingController(text: court?.name ?? '');
+    final sportCtrl = TextEditingController(text: court?.sportType ?? '');
+    final descCtrl = TextEditingController(text: court?.description ?? '');
 
     await showDialog(
       context: context,
@@ -59,25 +151,34 @@ class _AdminCourtsScreenState extends State<AdminCourtsScreen> {
           ),
           ElevatedButton(
             onPressed: () async {
-              final client = Supabase.instance.client;
+              final confirmed = await ConfirmDialog.show(
+                context,
+                title: court == null ? 'Add this court?' : 'Save changes?',
+                message: court == null
+                    ? 'This court will be available for reservations.'
+                    : 'Court details will be updated.',
+                confirmLabel: 'Yes, save',
+                cancelLabel: 'Cancel',
+                icon: court == null ? Icons.add_circle_outline : Icons.save_outlined,
+              );
+              if (!confirmed || !context.mounted) return;
+              final repo = ref.read(courtsRepositoryProvider);
               if (court == null) {
-                await client.from('courts').insert({
-                  'name': nameCtrl.text.trim(),
-                  'sport_type': sportCtrl.text.trim(),
-                  'description': descCtrl.text.trim(),
-                });
+                await repo.createCourt(
+                  nameCtrl.text.trim(),
+                  sportCtrl.text.trim(),
+                  descCtrl.text.trim(),
+                );
               } else {
-                await client
-                    .from('courts')
-                    .update({
-                      'name': nameCtrl.text.trim(),
-                      'sport_type': sportCtrl.text.trim(),
-                      'description': descCtrl.text.trim(),
-                    })
-                    .eq('id', court['id']);
+                await repo.updateCourt(
+                  court.id,
+                  nameCtrl.text.trim(),
+                  sportCtrl.text.trim(),
+                  descCtrl.text.trim(),
+                );
               }
               if (context.mounted) Navigator.pop(context);
-              setState(() => _future = _load());
+              ref.invalidate(courtsListProvider);
             },
             child: const Text('Save'),
           ),
@@ -86,81 +187,19 @@ class _AdminCourtsScreenState extends State<AdminCourtsScreen> {
     );
   }
 
-  Future<void> _deleteCourt(String id) async {
-    await Supabase.instance.client.from('courts').delete().eq('id', id);
-    setState(() => _future = _load());
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Courts'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.add),
-            onPressed: () => _showEditDialog(),
-          ),
-        ],
-      ),
-      body: FutureBuilder<List<Map<String, dynamic>>>(
-        future: _future,
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) {
-            if (snapshot.hasError) {
-              return Center(child: Text('Error: ${snapshot.error}'));
-            }
-            return const Center(child: CircularProgressIndicator());
-          }
-          final list = snapshot.data!;
-          return ListView.builder(
-            padding: AppSpacing.paddingMd,
-            itemCount: list.length,
-            itemBuilder: (context, index) {
-              final c = list[index];
-              return Card(
-                margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-                child: ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: AppColors.blue100,
-                    child: Text(
-                      (c['sport_type'] as String? ?? '?').isNotEmpty
-                          ? (c['sport_type'] as String)[0]
-                          : '?',
-                      style: AppTypography.titleMedium.copyWith(
-                        color: AppColors.blue700,
-                      ),
-                    ),
-                  ),
-                  title: Text(c['name'], style: AppTypography.titleMedium),
-                  subtitle: Text(
-                    c['sport_type'],
-                    style: AppTypography.bodySmall.copyWith(
-                      color: AppColors.orange700,
-                    ),
-                  ),
-                  trailing: Wrap(
-                    spacing: AppSpacing.sm,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.edit),
-                        color: AppColors.blue600,
-                        onPressed: () => _showEditDialog(court: c),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.delete),
-                        color: AppColors.rejected,
-                        onPressed: () => _deleteCourt(c['id']),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          );
-        },
-      ),
+  Future<void> _confirmDeleteCourt(Court court) async {
+    final ok = await ConfirmDialog.show(
+      context,
+      title: 'Delete this court?',
+      message: '${court.name} will be removed. Reservations linked to it may be affected.',
+      confirmLabel: 'Yes, delete',
+      cancelLabel: 'Cancel',
+      isDanger: true,
+      icon: Icons.delete_forever_rounded,
     );
+    if (!ok || !mounted) return;
+    final repo = ref.read(courtsRepositoryProvider);
+    await repo.deleteCourt(court.id);
+    ref.invalidate(courtsListProvider);
   }
 }
-

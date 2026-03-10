@@ -7,6 +7,31 @@ class CourtsRepository {
 
   CourtsRepository(this._client);
 
+  RealtimeChannel subscribeToCourtsChanges(void Function() onChange) {
+    final channel = _client
+        .channel('public:courts:all')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'courts',
+          callback: (payload) => onChange(),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'courts',
+          callback: (payload) => onChange(),
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.delete,
+          schema: 'public',
+          table: 'courts',
+          callback: (payload) => onChange(),
+        )
+        .subscribe();
+    return channel;
+  }
+
   Future<List<Court>> getCourts() async {
     final res = await _client.from('courts').select().order('name');
     return (res as List)

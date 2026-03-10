@@ -2,7 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_design_system.dart';
+import '../../../core/theme/responsive.dart';
+import '../../../core/widgets/glass_card.dart';
+import '../../../core/widgets/gradient_app_bar.dart';
 import '../domain/auth_providers.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -12,54 +16,159 @@ class LoginScreen extends ConsumerStatefulWidget {
   ConsumerState<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends ConsumerState<LoginScreen> {
+class _LoginScreenState extends ConsumerState<LoginScreen>
+    with SingleTickerProviderStateMixin {
   final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   bool _loading = false;
+  bool _obscurePassword = true;
   String? _error;
+  late AnimationController _animCtrl;
+  late Animation<double> _fadeAnim;
+
+  @override
+  void initState() {
+    super.initState();
+    _animCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+    _fadeAnim = Tween<double>(begin: 0, end: 1).animate(
+      CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut),
+    );
+    _animCtrl.forward();
+  }
+
+  @override
+  void dispose() {
+    _animCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
-      appBar: AppBar(title: const Text('CourtSide Login')),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 400),
-            child: Padding(
-            padding: AppSpacing.paddingMd,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (_error != null)
-                  Text(
-                    _error!,
-                    style: AppTypography.bodySmall.copyWith(
-                      color: AppColors.error,
+      body: Container(
+        width: double.infinity,
+        height: double.infinity,
+        decoration: BoxDecoration(
+          gradient: isDark
+              ? AppColors.surfaceGradientDark
+              : const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Color(0xFFE0F2FE),
+                    Color(0xFFF0F9FF),
+                    Color(0xFFE0F2FE),
+                  ],
+                ),
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              GradientAppBar(
+                title: 'CourtSide',
+                actions: const [AppBarThemeToggle()],
+              ),
+              Expanded(
+                child: Center(
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.all(Responsive.isNarrow(context) ? 16 : 24),
+                    child: FadeTransition(
+                      opacity: _fadeAnim,
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 420),
+                        child: GlassCard(
+                          padding: const EdgeInsets.all(28),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Text(
+                                'Sign in',
+                                style: AppTypography.headlineMedium.copyWith(
+                                  color: isDark
+                                      ? AppColors.cyan400
+                                      : AppColors.blue800,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 24),
+                              if (_error != null) ...[
+                                Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.error.withOpacity(0.1),
+                                    borderRadius: AppRadius.radiusSm,
+                                  ),
+                                  child: Text(
+                                    _error!,
+                                    style: AppTypography.bodySmall.copyWith(
+                                      color: AppColors.error,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                              ],
+                              TextField(
+                                controller: _emailCtrl,
+                                decoration: const InputDecoration(
+                                  labelText: 'Email',
+                                  prefixIcon: Icon(Icons.email_outlined),
+                                ),
+                                keyboardType: TextInputType.emailAddress,
+                              ),
+                              const SizedBox(height: 16),
+                              TextField(
+                                controller: _passwordCtrl,
+                                decoration: InputDecoration(
+                                  labelText: 'Password',
+                                  prefixIcon: const Icon(Icons.lock_outline),
+                                  suffixIcon: IconButton(
+                                    icon: Icon(
+                                      _obscurePassword
+                                          ? Icons.visibility_off
+                                          : Icons.visibility,
+                                    ),
+                                    onPressed: () =>
+                                        setState(() => _obscurePassword = !_obscurePassword),
+                                  ),
+                                ),
+                                obscureText: _obscurePassword,
+                              ),
+                              const SizedBox(height: 24),
+                              SizedBox(
+                                height: 48,
+                                child: ElevatedButton(
+                                  onPressed: _loading ? null : _login,
+                                  child: _loading
+                                      ? const SizedBox(
+                                          height: 24,
+                                          width: 24,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: Colors.white,
+                                          ),
+                                        )
+                                      : const Text('Login'),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              TextButton(
+                                onPressed: () => context.go('/register'),
+                                child: const Text('Create account'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                     ),
                   ),
-                TextField(
-                  controller: _emailCtrl,
-                  decoration: const InputDecoration(labelText: 'Email'),
-                  keyboardType: TextInputType.emailAddress,
                 ),
-                TextField(
-                  controller: _passwordCtrl,
-                  decoration: const InputDecoration(labelText: 'Password'),
-                  obscureText: true,
-                ),
-                AppSpacing.gapMdV,
-                ElevatedButton(
-                  onPressed: _loading ? null : _login,
-                  child: _loading
-                      ? const CircularProgressIndicator()
-                      : const Text('Login'),
-                ),
-                TextButton(
-                  onPressed: () => context.go('/register'),
-                  child: const Text('Create account'),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
@@ -74,6 +183,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final repo = ref.read(authRepositoryProvider);
     try {
       await repo.signIn(_emailCtrl.text.trim(), _passwordCtrl.text.trim());
+      ref.invalidate(currentUserProfileProvider);
       if (mounted) context.go('/home');
     } catch (e) {
       setState(() => _error = e.toString());
@@ -82,4 +192,3 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
   }
 }
-

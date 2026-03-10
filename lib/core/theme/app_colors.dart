@@ -67,6 +67,7 @@ class AppColors {
   static const Color approved = green600;
   static const Color rejected = orange700;
   static const Color cancelled = neutral600;
+  static const Color adminStatus = indigo500; // Admin-created reservations
   static const Color error = Color(0xFFD32F2F);
 
   // ─── Dark mode ────────────────────────────────────────────────────────────
@@ -75,7 +76,35 @@ class AppColors {
   static const Color neutral800Dark = Color(0xFFE0E0E0);
   static const Color neutral900Dark = Color(0xFFF5F5F5);
 
-  /// Status color for reservation: PENDING, APPROVED, REJECTED, CANCELLED.
+  // ─── Tech / gradient accents ──────────────────────────────────────────────
+  static const Color cyan400 = Color(0xFF22D3EE);
+  static const Color cyan500 = Color(0xFF06B6D4);
+  static const Color cyan600 = Color(0xFF0891B2);
+  static const Color indigo500 = Color(0xFF6366F1);
+  static const Color violet500 = Color(0xFF8B5CF6);
+
+  /// Primary gradient (light): blue → cyan
+  static const LinearGradient primaryGradientLight = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [Color(0xFF1E88E5), Color(0xFF06B6D4)],
+  );
+
+  /// Primary gradient (dark): deep blue → cyan glow
+  static const LinearGradient primaryGradientDark = LinearGradient(
+    begin: Alignment.topLeft,
+    end: Alignment.bottomRight,
+    colors: [Color(0xFF0E7490), Color(0xFF06B6D4), Color(0xFF22D3EE)],
+  );
+
+  /// Surface gradient for hero (dark)
+  static const LinearGradient surfaceGradientDark = LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [Color(0xFF0F172A), Color(0xFF1E293B), Color(0xFF0F172A)],
+  );
+
+  /// Status color for reservation: PENDING, APPROVED, REJECTED, CANCELLED, ADMIN.
   static Color statusColor(String status) {
     switch (status.toUpperCase()) {
       case 'PENDING':
@@ -86,6 +115,8 @@ class AppColors {
         return rejected;
       case 'CANCELLED':
         return cancelled;
+      case 'ADMIN':
+        return adminStatus;
       default:
         return neutral600;
     }

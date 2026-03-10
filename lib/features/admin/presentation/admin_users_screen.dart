@@ -1,28 +1,109 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/theme/app_design_system.dart';
+import '../../../core/theme/responsive.dart';
+import '../../../core/widgets/confirm_dialog.dart';
+import '../../../core/widgets/empty_state.dart';
+import '../domain/admin_providers.dart';
 
-class AdminUsersScreen extends StatefulWidget {
+class AdminUsersScreen extends ConsumerStatefulWidget {
   const AdminUsersScreen({super.key});
 
   @override
-  State<AdminUsersScreen> createState() => _AdminUsersScreenState();
+  ConsumerState<AdminUsersScreen> createState() => _AdminUsersScreenState();
 }
 
-class _AdminUsersScreenState extends State<AdminUsersScreen> {
-  late Future<List<Map<String, dynamic>>> _future;
+class _AdminUsersScreenState extends ConsumerState<AdminUsersScreen> {
+  RealtimeChannel? _channel;
 
   @override
-  void initState() {
-    super.initState();
-    _future = _load();
+  void dispose() {
+    if (_channel != null) {
+      Supabase.instance.client.removeChannel(_channel!);
+    }
+    super.dispose();
   }
 
-  Future<List<Map<String, dynamic>>> _load() async {
-    final res =
-        await Supabase.instance.client.from('users').select().order('name');
-    return (res as List).cast<Map<String, dynamic>>();
+  @override
+  Widget build(BuildContext context) {
+    if (_channel == null) {
+      _channel = Supabase.instance.client
+          .channel('admin:users')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'users',
+            callback: (_) => ref.invalidate(adminUsersListProvider),
+          )
+          .subscribe();
+    }
+
+    final usersAsync = ref.watch(adminUsersListProvider);
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Users')),
+      body: usersAsync.when(
+        data: (list) {
+          if (list.isEmpty) {
+            return const EmptyState(
+              icon: Icons.people_outline_rounded,
+              title: 'No users yet',
+              subtitle: 'Registered users will appear here.',
+            );
+          }
+          return ListView.builder(
+          padding: EdgeInsets.symmetric(
+            horizontal: Responsive.isNarrow(context) ? AppSpacing.sm : AppSpacing.md,
+            vertical: AppSpacing.sm,
+          ),
+          itemCount: list.length,
+          itemBuilder: (context, index) {
+            final u = list[index];
+            return Card(
+              margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+              child: ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: AppColors.orange100,
+                  child: Text(
+                    (u['name'] as String? ?? '?').isNotEmpty
+                        ? (u['name'] as String)[0]
+                        : '?',
+                    style: AppTypography.titleMedium.copyWith(
+                      color: AppColors.orange800,
+                    ),
+                  ),
+                ),
+                title: Text(
+                  u['name'],
+                  style: AppTypography.titleMedium,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: Text(
+                  '${u['email']} (${u['role']})',
+                  style: AppTypography.bodySmall,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                trailing: Wrap(
+                  spacing: AppSpacing.xs,
+                  runSpacing: AppSpacing.xs,
+                  children: [
+                    TextButton(onPressed: () => _editUser(u), child: const Text('Edit')),
+                    TextButton(onPressed: () => _viewHistory(u), child: const Text('History')),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+        },
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, st) => Center(child: Text('Error: $e')),
+      ),
+    );
   }
 
   Future<void> _editUser(Map<String, dynamic> user) async {
@@ -44,12 +125,21 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () async {
+              final confirmed = await ConfirmDialog.show(
+                ctx,
+                title: 'Save user changes?',
+                message: 'Name and contact will be updated.',
+                confirmLabel: 'Yes, save',
+                cancelLabel: 'Cancel',
+                icon: Icons.person_outline_rounded,
+              );
+              if (!confirmed || !ctx.mounted) return;
               await Supabase.instance.client.from('users').update({
                 'name': nameCtrl.text.trim(),
                 'contact_number': contactCtrl.text.trim(),
               }).eq('id', user['id']);
               if (ctx.mounted) Navigator.pop(ctx);
-              setState(() => _future = _load());
+              ref.invalidate(adminUsersListProvider);
             },
             child: const Text('Save'),
           ),
@@ -88,59 +178,4 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
       ),
     );
   }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Users')),
-      body: FutureBuilder<List<Map<String, dynamic>>>(
-        future: _future,
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) {
-            if (snapshot.hasError) {
-              return Center(child: Text('Error: ${snapshot.error}'));
-            }
-            return const Center(child: CircularProgressIndicator());
-          }
-          final list = snapshot.data!;
-          return ListView.builder(
-            padding: AppSpacing.paddingMd,
-            itemCount: list.length,
-            itemBuilder: (context, index) {
-              final u = list[index];
-              return Card(
-                margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-                child: ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: AppColors.orange100,
-                    child: Text(
-                      (u['name'] as String? ?? '?').isNotEmpty
-                          ? (u['name'] as String)[0]
-                          : '?',
-                      style: AppTypography.titleMedium.copyWith(
-                        color: AppColors.orange800,
-                      ),
-                    ),
-                  ),
-                  title: Text(u['name'], style: AppTypography.titleMedium),
-                  subtitle: Text(
-                    '${u['email']} (${u['role']})',
-                    style: AppTypography.bodySmall,
-                  ),
-                  trailing: Wrap(
-                    spacing: AppSpacing.xs,
-                    children: [
-                      TextButton(onPressed: () => _editUser(u), child: const Text('Edit')),
-                      TextButton(onPressed: () => _viewHistory(u), child: const Text('History')),
-                    ],
-                  ),
-                ),
-              );
-            },
-          );
-        },
-      ),
-    );
-  }
 }
-

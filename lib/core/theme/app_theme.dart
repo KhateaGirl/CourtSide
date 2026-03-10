@@ -16,16 +16,20 @@ class AppTheme {
         appBarTheme: AppBarTheme(
           centerTitle: true,
           elevation: 0,
+          scrolledUnderElevation: 2,
           backgroundColor: _lightColorScheme.surface,
           foregroundColor: _lightColorScheme.onSurface,
           titleTextStyle: AppTypography.titleLarge.copyWith(
             color: _lightColorScheme.onSurface,
+            fontWeight: FontWeight.w600,
           ),
         ),
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
             backgroundColor: AppColors.blue600,
             foregroundColor: Colors.white,
+            elevation: 2,
+            shadowColor: AppColors.blue600.withOpacity(0.4),
             padding: const EdgeInsets.symmetric(
               horizontal: AppSpacing.lg,
               vertical: AppSpacing.sm,
@@ -75,8 +79,9 @@ class AppTheme {
           ),
         ),
     cardTheme: CardThemeData(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: AppRadius.radiusMd),
+      elevation: 2,
+      shadowColor: Colors.black26,
+      shape: RoundedRectangleBorder(borderRadius: AppRadius.radiusLg),
       color: Colors.white,
     ),
         chipTheme: ChipThemeData(
@@ -102,16 +107,20 @@ class AppTheme {
         appBarTheme: AppBarTheme(
           centerTitle: true,
           elevation: 0,
+          scrolledUnderElevation: 4,
           backgroundColor: _darkColorScheme.surface,
           foregroundColor: _darkColorScheme.onSurface,
           titleTextStyle: AppTypography.titleLarge.copyWith(
             color: _darkColorScheme.onSurface,
+            fontWeight: FontWeight.w600,
           ),
         ),
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
-            backgroundColor: AppColors.blue500,
-            foregroundColor: Colors.white,
+            backgroundColor: AppColors.cyan500,
+            foregroundColor: const Color(0xFF0F172A),
+            elevation: 2,
+            shadowColor: AppColors.cyan500.withOpacity(0.5),
             padding: const EdgeInsets.symmetric(
               horizontal: AppSpacing.lg,
               vertical: AppSpacing.sm,
@@ -123,8 +132,8 @@ class AppTheme {
         ),
         outlinedButtonTheme: OutlinedButtonThemeData(
           style: OutlinedButton.styleFrom(
-            foregroundColor: AppColors.blue300,
-            side: const BorderSide(color: AppColors.blue400),
+            foregroundColor: AppColors.cyan400,
+            side: const BorderSide(color: AppColors.cyan500),
             padding: const EdgeInsets.symmetric(
               horizontal: AppSpacing.lg,
               vertical: AppSpacing.sm,
@@ -136,7 +145,7 @@ class AppTheme {
         ),
         textButtonTheme: TextButtonThemeData(
           style: TextButton.styleFrom(
-            foregroundColor: AppColors.blue300,
+            foregroundColor: AppColors.cyan400,
           ),
         ),
         inputDecorationTheme: InputDecorationTheme(
@@ -149,7 +158,7 @@ class AppTheme {
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: AppRadius.radiusMd,
-            borderSide: const BorderSide(color: AppColors.blue400, width: 2),
+            borderSide: const BorderSide(color: AppColors.cyan500, width: 2),
           ),
           errorBorder: OutlineInputBorder(
             borderRadius: AppRadius.radiusMd,
@@ -161,8 +170,9 @@ class AppTheme {
           ),
         ),
     cardTheme: CardThemeData(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: AppRadius.radiusMd),
+      elevation: 2,
+      shadowColor: Colors.black45,
+      shape: RoundedRectangleBorder(borderRadius: AppRadius.radiusLg),
       color: AppColors.neutral100Dark,
     ),
       );
@@ -176,13 +186,13 @@ class AppTheme {
         onSecondary: Colors.white,
         secondaryContainer: AppColors.orange100,
         onSecondaryContainer: AppColors.orange900,
-        tertiary: AppColors.yellow500,
-        onTertiary: AppColors.neutral900,
-        tertiaryContainer: AppColors.yellow100,
-        onTertiaryContainer: AppColors.neutral800,
+        tertiary: AppColors.cyan600,
+        onTertiary: Colors.white,
+        tertiaryContainer: AppColors.blue50,
+        onTertiaryContainer: AppColors.blue900,
         error: AppColors.error,
         onError: Colors.white,
-        surface: Colors.white,
+        surface: const Color(0xFFF8FAFC),
         onSurface: AppColors.neutral900,
         surfaceContainerHighest: AppColors.neutral100,
         onSurfaceVariant: AppColors.neutral600,
@@ -190,23 +200,23 @@ class AppTheme {
       );
 
   static ColorScheme get _darkColorScheme => ColorScheme.dark(
-        primary: AppColors.blue400,
-        onPrimary: AppColors.blue900,
-        primaryContainer: AppColors.blue800,
-        onPrimaryContainer: AppColors.blue100,
+        primary: AppColors.cyan500,
+        onPrimary: const Color(0xFF0F172A),
+        primaryContainer: AppColors.cyan600,
+        onPrimaryContainer: AppColors.cyan400,
         secondary: AppColors.orange400,
         onSecondary: AppColors.orange900,
         secondaryContainer: AppColors.orange800,
         onSecondaryContainer: AppColors.orange100,
-        tertiary: AppColors.yellow400,
-        onTertiary: AppColors.neutral900,
-        tertiaryContainer: AppColors.yellow700,
-        onTertiaryContainer: AppColors.neutral900,
+        tertiary: AppColors.cyan400,
+        onTertiary: const Color(0xFF0F172A),
+        tertiaryContainer: AppColors.cyan600,
+        onTertiaryContainer: AppColors.cyan400,
         error: AppColors.error,
         onError: Colors.white,
-        surface: const Color(0xFF121212),
+        surface: const Color(0xFF0F172A),
         onSurface: AppColors.neutral900Dark,
-        surfaceContainerHighest: AppColors.neutral100Dark,
+        surfaceContainerHighest: const Color(0xFF1E293B),
         onSurfaceVariant: AppColors.neutral500,
         outline: AppColors.neutral600,
       );

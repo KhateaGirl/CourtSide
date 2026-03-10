@@ -1,5 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
 type Payload = {
   court_id: string;
   date: string;
@@ -10,8 +15,11 @@ type Payload = {
 };
 
 Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders });
+  }
   if (req.method !== "POST") {
-    return new Response("Method not allowed", { status: 405 });
+    return new Response("Method not allowed", { status: 405, headers: corsHeaders });
   }
 
   const supabaseClient = createClientFromReq(req);
@@ -20,6 +28,7 @@ Deno.serve(async (req) => {
   if (!authUser) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
@@ -41,13 +50,14 @@ Deno.serve(async (req) => {
   if (overlapError) {
     return new Response(JSON.stringify({ error: overlapError.message }), {
       status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
   if (!okOverlap) {
     return new Response(
       JSON.stringify({ error: "Time slot already booked" }),
-      { status: 409 },
+      { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
 
@@ -63,6 +73,7 @@ Deno.serve(async (req) => {
   if (priceError) {
     return new Response(JSON.stringify({ error: priceError.message }), {
       status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
@@ -85,6 +96,7 @@ Deno.serve(async (req) => {
   if (insertError) {
     return new Response(JSON.stringify({ error: insertError.message }), {
       status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
@@ -95,11 +107,12 @@ Deno.serve(async (req) => {
   });
 
   return new Response(JSON.stringify({ reservation }), {
-    headers: { "Content-Type": "application/json" },
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 });
 
 function createClientFromReq(req: Request) {
+  // SUPABASE_URL and SUPABASE_ANON_KEY are set automatically by Supabase when the function is deployed (no secrets to configure).
   const url = Deno.env.get("SUPABASE_URL")!;
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
   const authHeader = req.headers.get("Authorization");

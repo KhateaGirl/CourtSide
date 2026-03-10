@@ -1,170 +1,174 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/theme/app_design_system.dart';
+import '../../../core/theme/responsive.dart';
+import '../../../core/widgets/confirm_dialog.dart';
+import '../../../core/widgets/empty_state.dart';
+import '../domain/admin_providers.dart';
 
-class AdminPendingReservationsScreen extends StatefulWidget {
+class AdminPendingReservationsScreen extends ConsumerStatefulWidget {
   const AdminPendingReservationsScreen({super.key});
 
   @override
-  State<AdminPendingReservationsScreen> createState() =>
+  ConsumerState<AdminPendingReservationsScreen> createState() =>
       _AdminPendingReservationsScreenState();
 }
 
 class _AdminPendingReservationsScreenState
-    extends State<AdminPendingReservationsScreen> {
-  late Future<List<Map<String, dynamic>>> _future;
+    extends ConsumerState<AdminPendingReservationsScreen> {
+  RealtimeChannel? _channel;
 
   @override
-  void initState() {
-    super.initState();
-    _future = _load();
-  }
-
-  Future<List<Map<String, dynamic>>> _load() async {
-    final client = Supabase.instance.client;
-    final res = await client
-        .from('reservations')
-        .select('*, users(name,email), courts(name)')
-        .eq('status', 'PENDING')
-        .order('date')
-        .order('start_time');
-    return (res as List).cast<Map<String, dynamic>>();
-  }
-
-  Future<void> _setStatus(String id, String status) async {
-    final client = Supabase.instance.client;
-    await client.functions.invoke(
-      'approve_reservation',
-      body: {'reservation_id': id, 'status': status},
-    );
-    setState(() => _future = _load());
-  }
-
-  Future<void> _editReservation(Map<String, dynamic> r) async {
-    final client = Supabase.instance.client;
-    final dateCtrl = TextEditingController(text: r['date']?.toString() ?? '');
-    final startCtrl = TextEditingController(text: r['start_time']?.toString().substring(0, 5) ?? '');
-    final endCtrl = TextEditingController(text: r['end_time']?.toString().substring(0, 5) ?? '');
-    final eventCtrl = TextEditingController(text: r['event_type']?.toString() ?? '');
-    final playersCtrl = TextEditingController(text: r['players_count']?.toString() ?? '');
-    DateTime pickedDate = DateTime.tryParse(r['date']?.toString() ?? '') ?? DateTime.now();
-
-    if (!mounted) return;
-    await showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('Edit reservation'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextButton(
-                  onPressed: () async {
-                    final d = await showDatePicker(
-                      context: ctx,
-                      initialDate: pickedDate,
-                      firstDate: DateTime.now().subtract(const Duration(days: 365)),
-                      lastDate: DateTime.now().add(const Duration(days: 365)),
-                    );
-                    if (d != null) {
-                      setDialogState(() {
-                        pickedDate = d;
-                        dateCtrl.text = '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
-                      });
-                    }
-                  },
-                  child: Text('Date: ${dateCtrl.text.isEmpty ? "Tap to pick" : dateCtrl.text}'),
-                ),
-                TextField(controller: startCtrl, decoration: const InputDecoration(labelText: 'Start time (HH:mm)')),
-                TextField(controller: endCtrl, decoration: const InputDecoration(labelText: 'End time (HH:mm)')),
-                TextField(controller: eventCtrl, decoration: const InputDecoration(labelText: 'Event type')),
-                TextField(controller: playersCtrl, decoration: const InputDecoration(labelText: 'Number of players'), keyboardType: TextInputType.number),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: () async {
-                await client.from('reservations').update({
-                  'date': pickedDate.toIso8601String().substring(0, 10),
-                  'start_time': startCtrl.text.trim(),
-                  'end_time': endCtrl.text.trim(),
-                  'event_type': eventCtrl.text.trim(),
-                  'players_count': int.tryParse(playersCtrl.text.trim()) ?? 1,
-                }).eq('id', r['id']);
-                if (ctx.mounted) Navigator.pop(ctx);
-                setState(() => _future = _load());
-              },
-              child: const Text('Save'),
-            ),
-          ],
-        ),
-      ),
-    );
+  void dispose() {
+    if (_channel != null) {
+      Supabase.instance.client.removeChannel(_channel!);
+    }
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_channel == null) {
+      _channel = Supabase.instance.client
+          .channel('admin:pending_reservations')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'reservations',
+            callback: (_) => ref.invalidate(adminPendingReservationsProvider),
+          )
+          .subscribe();
+    }
+
+    final pendingAsync = ref.watch(adminPendingReservationsProvider);
+
     return Scaffold(
       appBar: AppBar(title: const Text('Pending reservations')),
-      body: FutureBuilder<List<Map<String, dynamic>>>(
-        future: _future,
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) {
-            if (snapshot.hasError) {
-              return Center(child: Text('Error: ${snapshot.error}'));
-            }
-            return const Center(child: CircularProgressIndicator());
+      body: pendingAsync.when(
+        data: (list) {
+          if (list.isEmpty) {
+            return const EmptyState(
+              icon: Icons.pending_actions_rounded,
+              title: 'No pending reservations',
+              subtitle: 'All caught up. New requests will show here.',
+            );
           }
-          final list = snapshot.data!;
           return ListView.builder(
-            padding: AppSpacing.paddingMd,
-            itemCount: list.length,
-            itemBuilder: (context, index) {
-              final r = list[index];
-              final user = r['users'];
-              final court = r['courts'];
-              return Card(
-                margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-                child: ListTile(
-                  title: Text(
-                    '${court['name']} • ${r['date']} ${r['start_time']} - ${r['end_time']}',
-                    style: AppTypography.titleMedium,
-                  ),
-                  subtitle: Text(
-                    '${user['name']} (${user['email']}) • ${r['event_type']}',
-                    style: AppTypography.bodySmall,
-                  ),
-                  trailing: Wrap(
-                    spacing: AppSpacing.sm,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.edit),
-                        color: AppColors.blue600,
-                        onPressed: () => _editReservation(r),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.check),
-                        color: AppColors.approved,
-                        onPressed: () => _setStatus(r['id'], 'APPROVED'),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close),
-                        color: AppColors.rejected,
-                        onPressed: () => _setStatus(r['id'], 'REJECTED'),
-                      ),
-                    ],
-                  ),
+          padding: EdgeInsets.symmetric(
+            horizontal: Responsive.isNarrow(context) ? AppSpacing.sm : AppSpacing.md,
+            vertical: AppSpacing.sm,
+          ),
+          itemCount: list.length,
+          itemBuilder: (context, index) {
+            final r = list[index];
+            final user = r['users'];
+            final court = r['courts'];
+            final category = r['categories'] as Map<String, dynamic>?;
+            final categoryName = category?['name']?.toString();
+            return Card(
+              margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+              child: ListTile(
+                title: Text(
+                  '${court?['name'] ?? 'Court'} • ${r['date']} ${r['start_time']} - ${r['end_time']}',
+                  style: AppTypography.titleMedium,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                 ),
-              );
-            },
-          );
+                subtitle: Text(
+                  '${user['name']} (${user['email']}) • ${categoryName ?? r['event_type']}',
+                  style: AppTypography.bodySmall,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                trailing: Wrap(
+                  spacing: AppSpacing.xs,
+                  runSpacing: AppSpacing.xs,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.check),
+                      color: AppColors.approved,
+                      tooltip: 'Approve',
+                      onPressed: () => _confirmSetStatus(r, 'APPROVED'),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      color: AppColors.rejected,
+                      tooltip: 'Reject',
+                      onPressed: () => _confirmSetStatus(r, 'REJECTED'),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
         },
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, st) => Center(child: Text('Error: $e')),
       ),
     );
   }
-}
 
+  Future<void> _confirmSetStatus(Map<String, dynamic> r, String status) async {
+    final confirmed = await ConfirmDialog.show(
+      context,
+      title: status == 'APPROVED' ? 'Approve this reservation?' : 'Reject this reservation?',
+      message: status == 'APPROVED'
+          ? 'The user will be notified and the slot will be confirmed.'
+          : 'The user will be notified. Only the user who made the reservation can edit it.',
+      confirmLabel: status == 'APPROVED' ? 'Yes, approve' : 'Yes, reject',
+      cancelLabel: 'Cancel',
+      isDanger: status == 'REJECTED',
+      icon: status == 'APPROVED' ? Icons.check_circle_outline : Icons.cancel_outlined,
+    );
+    if (!confirmed || !mounted) return;
+    await _setStatus(r['id'], r['user_id'], status);
+  }
+
+  Future<void> _setStatus(String id, dynamic userId, String status) async {
+    final client = Supabase.instance.client;
+    try {
+      final res = await client
+          .from('reservations')
+          .update({'status': status})
+          .eq('id', id)
+          .select('id')
+          .maybeSingle();
+      if (res == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Reservation not found')),
+          );
+        }
+        return;
+      }
+      final uid = userId?.toString() ?? '';
+      if (uid.isNotEmpty) {
+        final title = status == 'APPROVED' ? 'Reservation approved' : 'Reservation rejected';
+        final message = status == 'APPROVED'
+            ? 'Your reservation has been approved.'
+            : 'Your reservation has been rejected.';
+        await client.from('notifications').insert({
+          'user_id': uid,
+          'title': title,
+          'message': message,
+        });
+      }
+      ref.invalidate(adminPendingReservationsProvider);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Reservation $status')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    }
+  }
+
+}
