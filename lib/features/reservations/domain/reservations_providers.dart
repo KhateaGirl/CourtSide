@@ -1,17 +1,36 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../data/reservations_repository.dart';
+import '../../notifications/domain/notifications_providers.dart';
 import '../data/reservation_model.dart';
+import '../data/reservations_repository.dart';
+import 'reservation_service.dart';
 
 final reservationsRepositoryProvider =
     Provider<ReservationsRepository>((ref) {
   return ReservationsRepository(Supabase.instance.client);
 });
 
-final myReservationsProvider =
+/// Business logic: validation + repo + notifications.
+final reservationServiceProvider = Provider<ReservationService>((ref) {
+  return ReservationService(
+    ref.read(reservationsRepositoryProvider),
+    ref.read(notificationServiceProvider),
+    Supabase.instance.client,
+  );
+});
+
+/// My reservations; refreshes in realtime when admin approves/rejects or reservation is updated.
+final AutoDisposeFutureProvider<List<Reservation>> myReservationsProvider =
     FutureProvider.autoDispose<List<Reservation>>((ref) async {
   final repo = ref.read(reservationsRepositoryProvider);
+  final channel = repo.subscribeToMyReservationsChanges(() {
+    ref.invalidate(myReservationsProvider);
+    ref.invalidate(occupiedSlotsProvider);
+  });
+  ref.onDispose(() {
+    Supabase.instance.client.removeChannel(channel);
+  });
   return repo.getMyReservations();
 });
 

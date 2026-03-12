@@ -5,6 +5,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/theme/app_design_system.dart';
 import '../../../core/theme/responsive.dart';
 import '../../../core/widgets/empty_state.dart';
+import '../../../core/widgets/reservation_list_card.dart';
+import '../../../core/widgets/screen_list_padding.dart';
+import '../../../core/widgets/status_indicator.dart';
 import '../domain/admin_providers.dart';
 
 class AdminScheduleScreen extends ConsumerStatefulWidget {
@@ -123,45 +126,25 @@ class _AdminScheduleScreenState extends ConsumerState<AdminScheduleScreen> {
                     subtitle: 'Try another date or event type.',
                   );
                 }
-                return ListView.builder(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: Responsive.isNarrow(context) ? AppSpacing.sm : AppSpacing.md,
-                    vertical: AppSpacing.sm,
+                return ScreenListPadding(
+                  child: ListView.builder(
+                    itemCount: list.length,
+                    itemBuilder: (context, index) {
+                      final r = list[index];
+                      final user = r['users'] as Map<String, dynamic>?;
+                      final court = r['courts'] as Map<String, dynamic>?;
+                      final category = r['categories'] as Map<String, dynamic>?;
+                      final categoryName = category?['name']?.toString();
+                      final status = r['status'] as String? ?? '';
+                      return ReservationListCard(
+                        title:
+                            '${court?['name'] ?? 'Court'} • ${r['start_time']} - ${r['end_time']}',
+                        subtitle:
+                            '${user?['name']} • ${categoryName ?? r['event_type']} • $status',
+                        leading: StatusIndicator(status: status),
+                      );
+                    },
                   ),
-                  itemCount: list.length,
-                  itemBuilder: (context, index) {
-                    final r = list[index];
-                    final user = r['users'] as Map<String, dynamic>?;
-                    final court = r['courts'] as Map<String, dynamic>?;
-                    final category = r['categories'] as Map<String, dynamic>?;
-                    final categoryName = category?['name']?.toString();
-                    final status = r['status'] as String? ?? '';
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-                      child: ListTile(
-                        leading: Container(
-                          width: 4,
-                          height: 48,
-                          decoration: BoxDecoration(
-                            color: _statusColor(status),
-                            borderRadius: AppRadius.radiusXs,
-                          ),
-                        ),
-                        title: Text(
-                          '${court?['name'] ?? 'Court'} • ${r['start_time']} - ${r['end_time']}',
-                          style: AppTypography.titleMedium,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        subtitle: Text(
-                          '${user?['name']} • ${categoryName ?? r['event_type']} • $status',
-                          style: AppTypography.bodySmall,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    );
-                  },
                 );
               },
               loading: () => const Center(child: CircularProgressIndicator()),
@@ -182,20 +165,6 @@ class _AdminScheduleScreenState extends ConsumerState<AdminScheduleScreen> {
     );
     if (d != null) {
       setState(() => _filterDate = d);
-    }
-  }
-
-  Color _statusColor(String status) {
-    switch (status) {
-      case 'PENDING':
-        return AppColors.pending;
-      case 'APPROVED':
-        return AppColors.approved;
-      case 'CANCELLED':
-      case 'REJECTED':
-        return AppColors.cancelled;
-      default:
-        return AppColors.neutral600;
     }
   }
 

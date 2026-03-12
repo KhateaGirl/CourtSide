@@ -3,10 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/theme/app_design_system.dart';
-import '../../../core/theme/responsive.dart';
 import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/empty_state.dart';
+import '../../../core/widgets/reservation_list_card.dart';
+import '../../../core/widgets/screen_list_padding.dart';
 import '../domain/admin_providers.dart';
+import 'widgets/admin_edit_reservation_dialog.dart';
 
 class AdminPendingReservationsScreen extends ConsumerStatefulWidget {
   const AdminPendingReservationsScreen({super.key});
@@ -55,55 +57,54 @@ class _AdminPendingReservationsScreenState
               subtitle: 'All caught up. New requests will show here.',
             );
           }
-          return ListView.builder(
-          padding: EdgeInsets.symmetric(
-            horizontal: Responsive.isNarrow(context) ? AppSpacing.sm : AppSpacing.md,
-            vertical: AppSpacing.sm,
-          ),
-          itemCount: list.length,
-          itemBuilder: (context, index) {
-            final r = list[index];
-            final user = r['users'];
-            final court = r['courts'];
-            final category = r['categories'] as Map<String, dynamic>?;
-            final categoryName = category?['name']?.toString();
-            return Card(
-              margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-              child: ListTile(
-                title: Text(
-                  '${court?['name'] ?? 'Court'} • ${r['date']} ${r['start_time']} - ${r['end_time']}',
-                  style: AppTypography.titleMedium,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                subtitle: Text(
-                  '${user['name']} (${user['email']}) • ${categoryName ?? r['event_type']}',
-                  style: AppTypography.bodySmall,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                trailing: Wrap(
-                  spacing: AppSpacing.xs,
-                  runSpacing: AppSpacing.xs,
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.check),
-                      color: AppColors.approved,
-                      tooltip: 'Approve',
-                      onPressed: () => _confirmSetStatus(r, 'APPROVED'),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close),
-                      color: AppColors.rejected,
-                      tooltip: 'Reject',
-                      onPressed: () => _confirmSetStatus(r, 'REJECTED'),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
+          return ScreenListPadding(
+            child: ListView.builder(
+              itemCount: list.length,
+              itemBuilder: (context, index) {
+                final r = list[index];
+                final user = r['users'];
+                final court = r['courts'];
+                final category = r['categories'] as Map<String, dynamic>?;
+                final categoryName = category?['name']?.toString();
+                return ReservationListCard(
+                  title:
+                      '${court?['name'] ?? 'Court'} • ${r['date']} ${r['start_time']} - ${r['end_time']}',
+                  subtitle:
+                      '${user['name']} (${user['email']}) • ${categoryName ?? r['event_type']}',
+                  trailing: Wrap(
+                    spacing: AppSpacing.xs,
+                    runSpacing: AppSpacing.xs,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.edit),
+                        color: AppColors.blue600,
+                        tooltip: 'Edit time / send change request',
+                        onPressed: () => AdminEditReservationDialog.show(
+                          context,
+                          ref,
+                          r,
+                          onSuccess: () =>
+                              ref.invalidate(adminPendingReservationsProvider),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.check),
+                        color: AppColors.approved,
+                        tooltip: 'Approve',
+                        onPressed: () => _confirmSetStatus(r, 'APPROVED'),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        color: AppColors.rejected,
+                        tooltip: 'Reject',
+                        onPressed: () => _confirmSetStatus(r, 'REJECTED'),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, st) => Center(child: Text('Error: $e')),
@@ -114,14 +115,18 @@ class _AdminPendingReservationsScreenState
   Future<void> _confirmSetStatus(Map<String, dynamic> r, String status) async {
     final confirmed = await ConfirmDialog.show(
       context,
-      title: status == 'APPROVED' ? 'Approve this reservation?' : 'Reject this reservation?',
+      title: status == 'APPROVED'
+          ? 'Approve this reservation?'
+          : 'Reject this reservation?',
       message: status == 'APPROVED'
           ? 'The user will be notified and the slot will be confirmed.'
           : 'The user will be notified. Only the user who made the reservation can edit it.',
       confirmLabel: status == 'APPROVED' ? 'Yes, approve' : 'Yes, reject',
       cancelLabel: 'Cancel',
       isDanger: status == 'REJECTED',
-      icon: status == 'APPROVED' ? Icons.check_circle_outline : Icons.cancel_outlined,
+      icon: status == 'APPROVED'
+          ? Icons.check_circle_outline
+          : Icons.cancel_outlined,
     );
     if (!confirmed || !mounted) return;
     await _setStatus(r['id'], r['user_id'], status);
@@ -146,7 +151,8 @@ class _AdminPendingReservationsScreenState
       }
       final uid = userId?.toString() ?? '';
       if (uid.isNotEmpty) {
-        final title = status == 'APPROVED' ? 'Reservation approved' : 'Reservation rejected';
+        final title =
+            status == 'APPROVED' ? 'Reservation approved' : 'Reservation rejected';
         final message = status == 'APPROVED'
             ? 'Your reservation has been approved.'
             : 'Your reservation has been rejected.';
@@ -170,5 +176,4 @@ class _AdminPendingReservationsScreenState
       }
     }
   }
-
 }

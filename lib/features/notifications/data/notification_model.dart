@@ -6,6 +6,8 @@ class AppNotification {
   final DateTime createdAt;
   final String? type;
   final String? reservationId;
+  final String? changeRequestId;
+  final String? courtName;
 
   AppNotification({
     required this.id,
@@ -15,6 +17,8 @@ class AppNotification {
     required this.createdAt,
     this.type,
     this.reservationId,
+    this.changeRequestId,
+    this.courtName,
   });
 
   factory AppNotification.fromMap(Map<String, dynamic> map) => AppNotification(
@@ -25,6 +29,8 @@ class AppNotification {
         createdAt: DateTime.parse(map['created_at'] as String),
         type: map['type'] as String?,
         reservationId: map['reservation_id'] as String?,
+        changeRequestId: map['change_request_id'] as String?,
+        courtName: map['court_name'] as String?,
       );
 }
 

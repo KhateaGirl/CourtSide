@@ -14,10 +14,14 @@ class ReservationsRepository {
     return s;
   }
 
+  /// Only the current user's reservations (filtered by user_id).
   Future<List<Reservation>> getMyReservations() async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) return [];
     final res = await _client
         .from('reservations')
         .select()
+        .eq('user_id', userId)
         .order('date', ascending: false)
         .order('start_time', ascending: false);
     return (res as List)
@@ -130,15 +134,7 @@ class ReservationsRepository {
         .single();
 
     final reservation = Reservation.fromMap(insertRes);
-
-    await _client.from('notifications').insert({
-      'user_id': userId,
-      'title': 'Reservation created',
-      'message': createAsAdmin
-          ? 'Admin reservation created. You can edit it in Admin.'
-          : 'Your reservation is pending approval.',
-    });
-
+    // Notification is sent by NotificationService (called from ReservationService).
     return reservation;
   }
 
@@ -146,6 +142,18 @@ class ReservationsRepository {
     await _client
         .from('reservations')
         .update({'status': 'CANCELLED'}).eq('id', id);
+  }
+
+  /// Update only start_time and end_time (e.g. when player accepts a change request). No overlap check.
+  Future<void> updateReservationTimes(
+    String reservationId,
+    String startTime,
+    String endTime,
+  ) async {
+    await _client.from('reservations').update({
+      'start_time': _normalizeTimeForRpc(startTime),
+      'end_time': _normalizeTimeForRpc(endTime),
+    }).eq('id', reservationId);
   }
 
   /// Updates reservation details. When [currentStatus] is APPROVED, also sets status to PENDING
@@ -191,17 +199,7 @@ class ReservationsRepository {
       payload['status'] = 'PENDING';
     }
     await _client.from('reservations').update(payload).eq('id', id);
-
-    if (wasApproved) {
-      final userId = _client.auth.currentUser?.id;
-      if (userId != null) {
-        await _client.from('notifications').insert({
-          'user_id': userId,
-          'title': 'Reschedule submitted',
-          'message': 'Your change requires admin approval again. You will be notified when it is reviewed.',
-        });
-      }
-    }
+    // Reschedule notification is sent by NotificationService (called from ReservationService).
   }
 
   RealtimeChannel subscribeToMyReservationsChanges(void Function() onChange) {

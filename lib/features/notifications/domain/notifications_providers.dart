@@ -3,11 +3,17 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../data/notifications_repository.dart';
 import '../data/notification_model.dart';
+import 'notification_service.dart';
 
 /// Repository Provider
 final notificationsRepositoryProvider =
 Provider<NotificationsRepository>((ref) {
   return NotificationsRepository(Supabase.instance.client);
+});
+
+/// Notification business logic (when/what to notify).
+final notificationServiceProvider = Provider<NotificationService>((ref) {
+  return NotificationService(Supabase.instance.client);
 });
 
 /// My Notifications Provider with explicit type to avoid circular inference

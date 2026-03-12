@@ -8,6 +8,7 @@ import 'package:table_calendar/table_calendar.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_design_system.dart';
 import '../../../core/theme/responsive.dart';
+import '../../../core/utils/slot_utils.dart';
 import '../../../core/widgets/confirm_dialog.dart';
 import '../../../core/widgets/empty_state.dart';
 import '../../../core/widgets/glass_card.dart';
@@ -18,6 +19,9 @@ import '../../categories/data/category_model.dart';
 import '../../courts/domain/courts_providers.dart';
 import '../domain/reservations_providers.dart';
 import '../../courts/data/court_model.dart';
+import '../../reservation_change/data/reservation_change_request_model.dart';
+import '../../reservation_change/domain/reservation_change_providers.dart';
+import '../../reservation_change/presentation/widgets/reservation_change_modal.dart';
 import '../data/reservation_model.dart';
 
 class PlayerReservationsScreen extends ConsumerStatefulWidget {
@@ -53,20 +57,11 @@ class _PlayerReservationsScreenState
   final _playersCtrl = TextEditingController(text: '10');
   bool _booking = false;
   String? _error;
-  RealtimeChannel? _reservationsChannel;
   /// Status filter for reservations list: null or 'ALL' = all, else PENDING, APPROVED, REJECTED, CANCELLED
   String? _reservationStatusFilter;
   bool _calendarExpanded = true;
 
   static const double _wideLayoutBreakpoint = 600;
-
-  @override
-  void dispose() {
-    if (_reservationsChannel != null) {
-      Supabase.instance.client.removeChannel(_reservationsChannel!);
-    }
-    super.dispose();
-  }
 
   Widget _buildFormSection(WidgetRef ref) {
     final courtsAsync = ref.watch(courtsListProvider);
@@ -210,14 +205,7 @@ class _PlayerReservationsScreenState
     final width = MediaQuery.sizeOf(context).width;
     final useWideLayout = width >= _wideLayoutBreakpoint;
 
-    if (_reservationsChannel == null) {
-      final repo = ref.read(reservationsRepositoryProvider);
-      _reservationsChannel = repo.subscribeToMyReservationsChanges(() {
-        ref.invalidate(myReservationsProvider);
-        ref.invalidate(occupiedSlotsProvider);
-      });
-    }
-    // List updates in realtime when reservations change (insert/update/delete)
+    // Realtime subscription lives in myReservationsProvider; list updates when admin approves/rejects.
 
     final profileAsync = ref.watch(currentUserProfileProvider);
     final role = profileAsync.valueOrNull?['role']?.toString().toLowerCase();
@@ -332,12 +320,6 @@ class _PlayerReservationsScreenState
     );
   }
 
-  bool _slotOverlaps(String slotStart, String slotEnd, List<({String start, String end})> occupied) {
-    for (final range in occupied) {
-      if (slotStart.compareTo(range.end) < 0 && slotEnd.compareTo(range.start) > 0) return true;
-    }
-    return false;
-  }
 
   Widget _buildAvailabilitySection(WidgetRef ref) {
     final court = _singleCourt;
@@ -363,7 +345,7 @@ class _PlayerReservationsScreenState
                   children: hours.map((h) {
                     final slotStart = '${h.toString().padLeft(2, '0')}:00';
                     final slotEnd = h < 23 ? '${(h + 1).toString().padLeft(2, '0')}:00' : '23:00';
-                    final isBooked = _slotOverlaps(slotStart, slotEnd, occupied);
+                    final isBooked = slotOverlaps(slotStart, slotEnd, occupied);
                     return Container(
                       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: AppSpacing.xs),
                       decoration: BoxDecoration(
@@ -494,7 +476,7 @@ class _PlayerReservationsScreenState
         for (final h in _bookingHours) {
           final start = '${h.toString().padLeft(2, '0')}:00';
           final end = h < 23 ? '${(h + 1).toString().padLeft(2, '0')}:00' : '23:00';
-          if (!_slotOverlaps(start, end, occupied)) availableStarts.add(h);
+          if (!slotOverlaps(start, end, occupied)) availableStarts.add(h);
         }
 
         final startHour = _startTime?.hour;
@@ -503,7 +485,7 @@ class _PlayerReservationsScreenState
           final startStr = _formatTime(_startTime!);
           for (var h = startHour + 1; h <= 23; h++) {
             final endStr = '${h.toString().padLeft(2, '0')}:00';
-            if (!_slotOverlaps(startStr, endStr, occupied)) availableEnds.add(h);
+            if (!slotOverlaps(startStr, endStr, occupied)) availableEnds.add(h);
           }
         }
 
@@ -584,7 +566,7 @@ class _PlayerReservationsScreenState
     final ends = <int>[];
     for (var h = startHour + 1; h <= 23; h++) {
       final endStr = '${h.toString().padLeft(2, '0')}:00';
-      if (!_slotOverlaps(startStr, endStr, occupied)) ends.add(h);
+      if (!slotOverlaps(startStr, endStr, occupied)) ends.add(h);
     }
     return ends;
   }
@@ -668,7 +650,7 @@ class _PlayerReservationsScreenState
               ? (list.isEmpty
                   ? _buildEmptyReservations()
                   : _buildEmptyFilteredMessage())
-              : _buildReservationsList(filtered),
+              : _buildReservationsList(filtered, ref),
         ),
       ],
     );
@@ -690,75 +672,127 @@ class _PlayerReservationsScreenState
     );
   }
 
-  Widget _buildReservationsList(List<Reservation> list) {
+  Widget _buildReservationsList(List<Reservation> list, WidgetRef ref) {
     final dateFmt = DateFormat.yMMMd();
-    return ListView.builder(
-      padding: AppSpacing.paddingMd,
-      itemCount: list.length,
-      itemBuilder: (context, index) {
-        final r = list[index];
-        return GlassCard(
-          margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          child: ListTile(
-            title: Text(
-              '${dateFmt.format(r.date)} ${r.startTime} - ${r.endTime}',
-              style: AppTypography.titleMedium,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    final pendingAsync = ref.watch(myPendingChangeRequestsProvider);
+    return pendingAsync.when(
+      data: (pendingRequests) {
+        return ListView.builder(
+          padding: AppSpacing.paddingMd,
+          itemCount: list.length,
+          itemBuilder: (context, index) {
+            final r = list[index];
+            final matching = pendingRequests.where((req) => req.reservationId == r.id).toList();
+            final request = matching.isNotEmpty ? matching.first : null;
+            final hasChangeRequest = request != null;
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  '${r.eventType} • Players: ${r.playersCount}',
-                  style: AppTypography.bodySmall,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: AppSpacing.xs),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.sm,
-                    vertical: AppSpacing.xs,
+                if (hasChangeRequest)
+                  _ChangeRequestBanner(
+                    reservation: r,
+                    request: request,
                   ),
-                  decoration: BoxDecoration(
-                    color: AppColors.statusColor(r.status).withOpacity(0.15),
-                    borderRadius: AppRadius.radiusXs,
-                  ),
-                  child: Text(
-                    r.status,
-                    style: AppTypography.labelSmall.copyWith(
-                      color: AppColors.statusColor(r.status),
-                      fontWeight: FontWeight.w600,
+                GlassCard(
+                  margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  child: ListTile(
+                    title: Text(
+                      '${dateFmt.format(r.date)} ${r.startTime} - ${r.endTime}',
+                      style: AppTypography.titleMedium,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '${r.eventType} • Players: ${r.playersCount}',
+                          style: AppTypography.bodySmall,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: AppSpacing.xs),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.sm,
+                            vertical: AppSpacing.xs,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppColors.statusColor(r.status).withOpacity(0.15),
+                            borderRadius: AppRadius.radiusXs,
+                          ),
+                          child: Text(
+                            r.status,
+                            style: AppTypography.labelSmall.copyWith(
+                              color: AppColors.statusColor(r.status),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    trailing: Wrap(
+                      spacing: AppSpacing.xs,
+                      runSpacing: AppSpacing.xs,
+                      children: [
+                        if (r.status == 'PENDING' || r.status == 'APPROVED')
+                          IconButton(
+                            icon: Icon(r.status == 'APPROVED' ? Icons.schedule : Icons.edit),
+                            tooltip: r.status == 'APPROVED' ? 'Reschedule' : 'Edit',
+                            color: Theme.of(context).brightness == Brightness.dark ? AppColors.cyan400 : AppColors.blue600,
+                            onPressed: () => _editReservationDialog(r),
+                          ),
+                        if (r.status == 'PENDING')
+                          IconButton(
+                            icon: const Icon(Icons.cancel),
+                            color: AppColors.orange600,
+                            onPressed: () => _confirmCancelReservation(r),
+                          ),
+                      ],
                     ),
                   ),
                 ),
               ],
-            ),
-            trailing: Wrap(
-              spacing: AppSpacing.xs,
-              runSpacing: AppSpacing.xs,
-              children: [
-                if (r.status == 'PENDING' || r.status == 'APPROVED')
-                  IconButton(
-                    icon: Icon(r.status == 'APPROVED' ? Icons.schedule : Icons.edit),
-                    tooltip: r.status == 'APPROVED' ? 'Reschedule' : 'Edit',
-                    color: Theme.of(context).brightness == Brightness.dark ? AppColors.cyan400 : AppColors.blue600,
-                    onPressed: () => _editReservationDialog(r),
-                  ),
-                if (r.status == 'PENDING')
-                  IconButton(
-                    icon: const Icon(Icons.cancel),
-                    color: AppColors.orange600,
-                    onPressed: () => _confirmCancelReservation(r),
-                  ),
-              ],
-            ),
-          ),
+            );
+          },
         );
       },
+      loading: () => ListView.builder(
+        padding: AppSpacing.paddingMd,
+        itemCount: list.length,
+        itemBuilder: (context, index) {
+          final r = list[index];
+          final dateFmt = DateFormat.yMMMd();
+          return GlassCard(
+            margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            child: ListTile(
+              title: Text('${dateFmt.format(r.date)} ${r.startTime} - ${r.endTime}', style: AppTypography.titleMedium),
+              subtitle: Text('${r.eventType} • ${r.status}', style: AppTypography.bodySmall),
+            ),
+          );
+        },
+      ),
+      error: (_, __) => ListView.builder(
+        padding: AppSpacing.paddingMd,
+        itemCount: list.length,
+        itemBuilder: (context, index) {
+          final r = list[index];
+          final dateFmt = DateFormat.yMMMd();
+          return GlassCard(
+            margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            child: ListTile(
+              title: Text('${dateFmt.format(r.date)} ${r.startTime} - ${r.endTime}', style: AppTypography.titleMedium),
+              subtitle: Text('${r.eventType} • ${r.status}', style: AppTypography.bodySmall),
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -781,7 +815,7 @@ class _PlayerReservationsScreenState
     }
     final dateKey = _selectedDay.toIso8601String().substring(0, 10);
     final occupied = await ref.read(occupiedSlotsProvider((courtId: court.id, date: dateKey)).future);
-    if (_slotOverlaps(startStr, endStr, occupied)) {
+    if (slotOverlaps(startStr, endStr, occupied)) {
       setState(() => _error = 'This slot was taken. Please choose another time.');
       return;
     }
@@ -790,13 +824,13 @@ class _PlayerReservationsScreenState
       _error = null;
     });
 
-    final repo = ref.read(reservationsRepositoryProvider);
+    final service = ref.read(reservationServiceProvider);
     final players = int.tryParse(_playersCtrl.text.trim()) ?? 1;
 
     try {
       final profile = await ref.read(currentUserProfileProvider.future);
       final createAsAdmin = profile?['role']?.toString().trim().toLowerCase() == 'admin';
-      await repo.createReservation(
+      await service.createReservation(
         courtId: court.id,
         categoryId: category.id,
         date: _selectedDay,
@@ -844,7 +878,7 @@ class _PlayerReservationsScreenState
     final startStr = _formatTime(_startTime!);
     final endStr = _formatTime(_endTime!);
     if (startStr.compareTo(endStr) >= 0) return false;
-    return !_slotOverlaps(startStr, endStr, occupied);
+    return !slotOverlaps(startStr, endStr, occupied);
   }
 
   Future<void> _confirmCreateReservation() async {
@@ -980,9 +1014,9 @@ class _PlayerReservationsScreenState
                 icon: Icons.save_outlined,
               );
               if (!confirmed || !context.mounted) return;
-              final repo = ref.read(reservationsRepositoryProvider);
+              final service = ref.read(reservationServiceProvider);
               try {
-                await repo.updateReservation(
+                await service.updateReservation(
                   id: r.id,
                   courtId: r.courtId,
                   date: selectedDate,
@@ -1028,6 +1062,131 @@ class _PlayerReservationsScreenState
         ],
       ),
     );
+  }
+}
+
+class _ChangeRequestBanner extends ConsumerWidget {
+  const _ChangeRequestBanner({
+    required this.reservation,
+    required this.request,
+  });
+
+  final Reservation reservation;
+  final ReservationChangeRequest request;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final expired = request.isExpired || request.expiresAt.isBefore(DateTime.now());
+    return Container(
+      margin: const EdgeInsets.only(bottom: AppSpacing.xs),
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.sm,
+        vertical: AppSpacing.xs,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.blue600.withOpacity(0.12),
+        borderRadius: AppRadius.radiusXs,
+        border: Border.all(color: AppColors.blue600.withOpacity(0.4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'Reservation Change Requested',
+            style: AppTypography.labelMedium.copyWith(
+              color: AppColors.blue800,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            'Admin proposed a new schedule: ${request.newStartTime} – ${request.newEndTime}',
+            style: AppTypography.bodySmall.copyWith(color: AppColors.neutral700),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(
+                onPressed: expired
+                    ? null
+                    : () => ReservationChangeModal.show(
+                          context,
+                          request: request,
+                          reservationDate: reservation.date,
+                          onAccept: () => _accept(ref, context),
+                          onReject: () => _reject(ref, context),
+                        ),
+                child: const Text('View details'),
+              ),
+              if (!expired) ...[
+                TextButton(
+                  onPressed: () => _reject(ref, context),
+                  child: const Text('Reject', style: TextStyle(color: AppColors.rejected)),
+                ),
+                ElevatedButton(
+                  onPressed: () => _accept(ref, context),
+                  child: const Text('Accept'),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _accept(WidgetRef ref, BuildContext context) async {
+    final uid = Supabase.instance.client.auth.currentUser?.id;
+    if (uid == null) return;
+    try {
+      await ref.read(reservationChangeServiceProvider).acceptChangeRequest(
+            changeRequestId: request.id,
+            userId: uid,
+            notificationId: null,
+          );
+      ref.invalidate(myReservationsProvider);
+      ref.invalidate(myPendingChangeRequestsProvider);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Change accepted. Reservation updated.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    }
+  }
+
+  Future<void> _reject(WidgetRef ref, BuildContext context) async {
+    final uid = Supabase.instance.client.auth.currentUser?.id;
+    if (uid == null) return;
+    try {
+      await ref.read(reservationChangeServiceProvider).rejectChangeRequest(
+            changeRequestId: request.id,
+            userId: uid,
+            notificationId: null,
+          );
+      ref.invalidate(myReservationsProvider);
+      ref.invalidate(myPendingChangeRequestsProvider);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Change rejected. Reservation unchanged.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    }
   }
 }
 
